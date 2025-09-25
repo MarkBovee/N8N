@@ -9,6 +9,16 @@ services:
     volumes:
       - n8n-postgres-data:/var/lib/postgresql/data
 
+  github-models-proxy:
+    build: .
+    restart: always
+    ports:
+      - "11434:11434"  # Keep same port as original Ollama setup for N8N compatibility
+    environment:
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+    volumes:
+      - .:/app
+
   n8n:
     image: n8nio/n8n
     restart: always
@@ -27,6 +37,7 @@ services:
       - N8N_BASIC_AUTH_PASSWORD=secret  # pas aan naar eigen wachtwoord
     depends_on:
       - postgres
+      - github-models-proxy
     volumes:
       - n8n-data:/home/node/.n8n
 
