@@ -13,18 +13,42 @@
         <!-- Header -->
         <header class="header">
             <div class="header-left">
-                <div class="logo">
-                    <i class="fas fa-sparkles"></i>
-                    <span>N8N AI</span>
-                </div>
-            </div>
-            <div class="header-center">
-                <span class="model-name">GitHub Models - GPT-4</span>
+                <button class="new-chat-btn" id="newChatBtn">
+                    <i class="fas fa-plus"></i>
+                </button>
+                <button class="options-btn">
+                    <i class="fas fa-sliders-h"></i>
+                </button>
             </div>
             <div class="header-right">
-                <button class="header-btn" id="newChatBtn">
-                    <i class="fas fa-plus"></i>
-                    <span>New Chat</span>
+                <div class="model-selector" id="modelSelector">
+                    <span class="model-name">Sonnet 4</span>
+                    <i class="fas fa-chevron-down"></i>
+                    <div class="model-dropdown" id="modelDropdown">
+                        <div class="model-option">
+                            <div class="model-info">
+                                <div class="model-title">Opus 4.1</div>
+                                <div class="model-subtitle">Powerful, large model for complex challenges</div>
+                                <div class="model-remaining">3 remaining until Sep 29</div>
+                            </div>
+                        </div>
+                        <div class="model-option active">
+                            <div class="model-info">
+                                <div class="model-title">Sonnet 4</div>
+                                <div class="model-subtitle">Smart, efficient model for everyday use</div>
+                            </div>
+                            <i class="fas fa-check"></i>
+                        </div>
+                        <div class="model-option">
+                            <div class="model-info">
+                                <div class="model-title">More models</div>
+                            </div>
+                            <i class="fas fa-chevron-right"></i>
+                        </div>
+                    </div>
+                </div>
+                <button class="upgrade-btn">
+                    <span>Upgrade to connect your tools to Claude</span>
                 </button>
             </div>
         </header>
@@ -39,25 +63,6 @@
                     </div>
                     <h1>Hi Mark, how are you?</h1>
                     <p>How can I help you today?</p>
-                    
-                    <div class="suggested-prompts">
-                        <button class="prompt-card" data-prompt="Help me write a Python script to automate file organization">
-                            <i class="fas fa-code"></i>
-                            <span>Write a Python script</span>
-                        </button>
-                        <button class="prompt-card" data-prompt="Explain how Docker containers work and their benefits">
-                            <i class="fab fa-docker"></i>
-                            <span>Explain Docker concepts</span>
-                        </button>
-                        <button class="prompt-card" data-prompt="Help me design a REST API for a todo application">
-                            <i class="fas fa-api"></i>
-                            <span>Design a REST API</span>
-                        </button>
-                        <button class="prompt-card" data-prompt="Review my code and suggest improvements">
-                            <i class="fas fa-search"></i>
-                            <span>Code review</span>
-                        </button>
-                    </div>
                 </div>
             </div>
 
@@ -75,7 +80,7 @@
                 <div class="input-wrapper">
                     <textarea 
                         id="messageInput" 
-                        placeholder="Message N8N AI..." 
+                        placeholder="How can I help you today?" 
                         rows="1" 
                         maxlength="4000"
                     ></textarea>
@@ -84,11 +89,8 @@
                     </button>
                 </div>
                 <div class="input-footer">
-                    <div class="char-count">
-                        <span id="charCount">0</span>/4000
-                    </div>
                     <div class="model-info">
-                        Powered by GitHub Models
+                        Claude can make mistakes. Please double-check responses.
                     </div>
                 </div>
             </div>

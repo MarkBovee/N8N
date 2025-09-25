@@ -17,12 +17,13 @@ class ChatInterface {
         this.messagesArea = document.getElementById('messagesArea');
         this.messageInput = document.getElementById('messageInput');
         this.sendBtn = document.getElementById('sendBtn');
-        this.charCount = document.getElementById('charCount');
+
         this.newChatBtn = document.getElementById('newChatBtn');
         this.loadingOverlay = document.getElementById('loadingOverlay');
 
-        // Prompt cards
-        this.promptCards = document.querySelectorAll('.prompt-card');
+        // Model selector
+        this.modelSelector = document.getElementById('modelSelector');
+        this.modelDropdown = document.getElementById('modelDropdown');
     }
 
     setupEventListeners() {
@@ -39,22 +40,21 @@ class ChatInterface {
 
         // Input changes
         this.messageInput.addEventListener('input', () => {
-            this.updateCharCount();
             this.updateSendButton();
         });
 
         // New chat button
         this.newChatBtn.addEventListener('click', () => this.startNewChat());
 
-        // Prompt cards
-        this.promptCards.forEach(card => {
-            card.addEventListener('click', () => {
-                const prompt = card.dataset.prompt;
-                this.messageInput.value = prompt;
-                this.updateCharCount();
-                this.updateSendButton();
-                this.sendMessage();
-            });
+        // Model selector dropdown
+        this.modelSelector.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.toggleModelDropdown();
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', () => {
+            this.modelDropdown.classList.remove('show');
         });
 
         // Focus input on load
@@ -70,17 +70,7 @@ class ChatInterface {
         });
     }
 
-    updateCharCount() {
-        const count = this.messageInput.value.length;
-        this.charCount.textContent = count;
-        
-        // Change color if approaching limit
-        if (count > 3500) {
-            this.charCount.style.color = 'var(--accent-primary)';
-        } else {
-            this.charCount.style.color = 'var(--text-muted)';
-        }
-    }
+
 
     updateSendButton() {
         const hasContent = this.messageInput.value.trim().length > 0;
@@ -100,7 +90,6 @@ class ChatInterface {
         // Clear input
         this.messageInput.value = '';
         this.messageInput.style.height = 'auto';
-        this.updateCharCount();
         this.updateSendButton();
 
         // Show typing indicator
@@ -275,6 +264,10 @@ class ChatInterface {
         this.welcomeScreen.style.display = 'flex';
         this.chatContainer.style.display = 'none';
         this.messageInput.focus();
+    }
+
+    toggleModelDropdown() {
+        this.modelDropdown.classList.toggle('show');
     }
 
     // Utility method to check API health
