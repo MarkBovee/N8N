@@ -1,0 +1,23 @@
+﻿name: Copilot progress file check
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  check-progress-file:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ensure canonical progress file is used
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f .github/copilot-progress.md ]; then
+            echo "Warning: .github/copilot-progress.md not found. Create it to enable session tracking." >&2
+          fi
+
