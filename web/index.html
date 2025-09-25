@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>N8N AI Chat - GitHub Models Interface</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <div class="logo">
+                    <i class="fas fa-sparkles"></i>
+                    <span>N8N AI</span>
+                </div>
+            </div>
+            <div class="header-center">
+                <span class="model-name">GitHub Models - GPT-4</span>
+            </div>
+            <div class="header-right">
+                <button class="header-btn" id="newChatBtn">
+                    <i class="fas fa-plus"></i>
+                    <span>New Chat</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Welcome Screen -->
+            <div class="welcome-screen" id="welcomeScreen">
+                <div class="welcome-content">
+                    <div class="welcome-icon">
+                        <i class="fas fa-sparkles"></i>
+                    </div>
+                    <h1>Hi Mark, how are you?</h1>
+                    <p>How can I help you today?</p>
+                    
+                    <div class="suggested-prompts">
+                        <button class="prompt-card" data-prompt="Help me write a Python script to automate file organization">
+                            <i class="fas fa-code"></i>
+                            <span>Write a Python script</span>
+                        </button>
+                        <button class="prompt-card" data-prompt="Explain how Docker containers work and their benefits">
+                            <i class="fab fa-docker"></i>
+                            <span>Explain Docker concepts</span>
+                        </button>
+                        <button class="prompt-card" data-prompt="Help me design a REST API for a todo application">
+                            <i class="fas fa-api"></i>
+                            <span>Design a REST API</span>
+                        </button>
+                        <button class="prompt-card" data-prompt="Review my code and suggest improvements">
+                            <i class="fas fa-search"></i>
+                            <span>Code review</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Chat Container -->
+            <div class="chat-container" id="chatContainer" style="display: none;">
+                <div class="messages-area" id="messagesArea">
+                    <!-- Messages will be dynamically added here -->
+                </div>
+            </div>
+        </main>
+
+        <!-- Input Area -->
+        <div class="input-section">
+            <div class="input-container">
+                <div class="input-wrapper">
+                    <textarea 
+                        id="messageInput" 
+                        placeholder="Message N8N AI..." 
+                        rows="1" 
+                        maxlength="4000"
+                    ></textarea>
+                    <button class="send-btn" id="sendBtn" disabled>
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
+                <div class="input-footer">
+                    <div class="char-count">
+                        <span id="charCount">0</span>/4000
+                    </div>
+                    <div class="model-info">
+                        Powered by GitHub Models
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay" style="display: none;">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <span>Thinking...</span>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
