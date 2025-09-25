@@ -218,7 +218,7 @@ coverage/
 .nyc_output
 
 # Copilot progress (should not be committed)
-.github/copilot-progress.md
+#.github/copilot-progress.md
 
 # Git-crypt key files (should never be committed)
 git-crypt-key
