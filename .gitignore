@@ -120,7 +120,7 @@ celerybeat.pid
 *.sage.py
 
 # Environments
-.env
+# Note: .env is encrypted with git-crypt and committed to repo
 .venv
 env/
 venv/
@@ -218,3 +218,7 @@ coverage/
 
 # Copilot progress (should not be committed)
 .github/copilot-progress.md
+
+# Git-crypt key files (should never be committed)
+git-crypt-key
+*.key
