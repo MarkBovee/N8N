@@ -1,0 +1,146 @@
+/* Copernicus Font Family - Local Files */
+
+@font-face {
+    font-family: 'Copernicus';
+    src: url('./CopernicusTrial-Book-BF66160450c2e92.ttf') format('truetype');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Copernicus';
+    src: url('./CopernicusTrial-BookItalic-BF661604511b981.ttf') format('truetype');
+    font-weight: 400;
+    font-style: italic;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Copernicus';
+    src: url('./CopernicusTrial-Medium-BF66160450d988d.ttf') format('truetype');
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Copernicus';
+    src: url('./CopernicusTrial-MediumItalic-BF6616045177c71.ttf') format('truetype');
+    font-weight: 500;
+    font-style: italic;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Copernicus';
+    src: url('./CopernicusTrial-Semibold-BF661604516314e.ttf') format('truetype');
+    font-weight: 600;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Copernicus';
+    src: url('./CopernicusTrial-SemiboldItalic-BF661604516314e.ttf') format('truetype');
+    font-weight: 600;
+    font-style: italic;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Copernicus';
+    src: url('./CopernicusTrial-Bold-BF6616045097aac.ttf') format('truetype');
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Copernicus';
+    src: url('./CopernicusTrial-BoldItalic-BF6616045093ed8.ttf') format('truetype');
+    font-weight: 700;
+    font-style: italic;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Copernicus';
+    src: url('./CopernicusTrial-Extrabold-BF661604510c584.ttf') format('truetype');
+    font-weight: 800;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Copernicus';
+    src: url('./CopernicusTrial-ExtraboldItalic-BF66160450eba9a.ttf') format('truetype');
+    font-weight: 800;
+    font-style: italic;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Copernicus';
+    src: url('./CopernicusTrial-Heavy-BF6616045153731.ttf') format('truetype');
+    font-weight: 900;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Copernicus';
+    src: url('./CopernicusTrial-HeavyItalic-BF66160450d4830.ttf') format('truetype');
+    font-weight: 900;
+    font-style: italic;
+    font-display: swap;
+}
+
+/* Condensed variants for special use */
+@font-face {
+    font-family: 'Copernicus Condensed';
+    src: url('./CopernicusNewCondTrial-070-BF6616044f8a3ab.otf') format('opentype');
+    font-weight: 300;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Copernicus Condensed';
+    src: url('./CopernicusNewCondTrial-090-BF6616044f92f03.otf') format('opentype');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Copernicus Condensed';
+    src: url('./CopernicusNewCondTrial-110-BF661604500e13.otf') format('opentype');
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Copernicus Condensed';
+    src: url('./CopernicusNewCondTrial-130-BF661604501d32e.otf') format('opentype');
+    font-weight: 600;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Copernicus Condensed';
+    src: url('./CopernicusNewCondTrial-150-BF661604503ea55.otf') format('opentype');
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Copernicus Condensed';
+    src: url('./CopernicusNewCondTrial-170-BF661604505d5d2.otf') format('opentype');
+    font-weight: 800;
+    font-style: normal;
+    font-display: swap;
+}

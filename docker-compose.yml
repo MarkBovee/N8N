@@ -16,6 +16,11 @@ services:
       - "11434:11434"  # Keep same port as original Ollama setup for N8N compatibility
     environment:
       - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - N8N_API_KEY=${N8N_API_KEY}
+      - N8N_BASE_URL=${N8N_BASE_URL:-http://n8n:5678}
+      # Map tools to endpoints inside the container; override in your .env or environment as needed
+      - TOOL_REGISTRY_JSON=${TOOL_REGISTRY_JSON}
+      - TOOL_STUB=false
     volumes:
       - .:/app
 
@@ -27,7 +32,8 @@ services:
       - "8080:80"  # Chat UI accessible at http://localhost:8080
     volumes:
       - ./web:/usr/share/nginx/html:ro
-      - ./web/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # Mount the entire nginx.conf directory so default.conf is correctly treated as a file within it
+      - ./web/nginx.conf:/etc/nginx/conf.d:ro
     depends_on:
       - github-models-proxy
 
@@ -47,6 +53,14 @@ services:
       - N8N_BASIC_AUTH_ACTIVE=true
       - N8N_BASIC_AUTH_USER=admin       # pas aan naar eigen gebruiker
       - N8N_BASIC_AUTH_PASSWORD=secret  # pas aan naar eigen wachtwoord
+      # OpenAI Configuration for GitHub Models Proxy
+      - OPENAI_API_BASE=http://github-models-proxy:11434/v1
+      - OPENAI_API_KEY=dummy-key-for-github-proxy
+      # Give node more heap memory to avoid OOM during heavy workflows
+      - NODE_OPTIONS=--max-old-space-size=1024
+      - N8N_MEMORY_LIMIT=1024
+    # Attempt to set a container memory limit for Compose environments that honor it
+    mem_limit: 1g
     depends_on:
       - postgres
       - github-models-proxy

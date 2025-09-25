@@ -3,105 +3,144 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>N8N AI Chat - GitHub Models Interface</title>
-    <link rel="stylesheet" href="styles.css">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>Personal AI Assistant</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Local Copernicus Font -->
+    <link rel="stylesheet" href="./fonts/copernicus.css">
+    
+    <!-- Inter Font as fallback -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
+    <!-- Custom Tailwind Config -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        'copernicus': ['Copernicus', 'Inter', 'system-ui', 'sans-serif'],
+                        'inter': ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                    colors: {
+                        'claude-bg': '#1e1e1e',
+                        'claude-secondary': '#2a2a2a',
+                        'claude-tertiary': '#3a3a3a',
+                        'claude-input': '#2f2f2f',
+                        'claude-text': '#f4f4f4',
+                        'claude-text-secondary': '#a8a8a8',
+                        'claude-text-muted': '#7a7a7a',
+                        'claude-accent': '#cd7f32',
+                        'claude-accent-hover': '#b8722c',
+                        'claude-border': '#4a4a4a',
+                        'claude-border-light': '#3a3a3a',
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Local Styles Override -->
+    <link rel="stylesheet" href="./styles.css">
 </head>
-<body>
-    <div class="app-container">
-        <!-- Header -->
-        <header class="header">
-            <div class="header-left">
-                <button class="new-chat-btn" id="newChatBtn">
-                    <i class="fas fa-plus"></i>
-                </button>
-                <button class="options-btn">
-                    <i class="fas fa-sliders-h"></i>
-                </button>
+<body class="bg-claude-bg text-claude-text h-screen overflow-hidden">
+    <!-- App Container -->
+    <div class="relative h-full w-full">
+        
+        <!-- Welcome Screen -->
+        <div id="welcomeScreen" class="flex flex-col items-center justify-center h-full">
+            <!-- Header -->
+            <div class="text-center mb-16">
+                <div class="mb-6">
+                    <i class="fas fa-sparkles text-6xl text-claude-accent"></i>
+                </div>
+                <h1 class="font-copernicus text-5xl md:text-6xl font-light text-claude-accent mb-12">
+                    Hi Mark, how are you?
+                </h1>
             </div>
-            <div class="header-right">
-                <div class="model-selector" id="modelSelector">
-                    <span class="model-name">Sonnet 4</span>
-                    <i class="fas fa-chevron-down"></i>
-                    <div class="model-dropdown" id="modelDropdown">
-                        <div class="model-option">
-                            <div class="model-info">
-                                <div class="model-title">Opus 4.1</div>
-                                <div class="model-subtitle">Powerful, large model for complex challenges</div>
-                                <div class="model-remaining">3 remaining until Sep 29</div>
+            
+            <!-- Input Section -->
+            <div class="w-full max-w-2xl px-8">
+                <div class="relative">
+                    <!-- Input Wrapper -->
+                    <div class="flex items-center gap-3 bg-claude-input border border-claude-border-light rounded-xl p-4 focus-within:border-claude-border focus-within:shadow-lg focus-within:shadow-claude-accent/10 transition-all duration-200">
+                        <!-- New Chat Button -->
+                        <button id="newChatBtn" class="w-8 h-8 bg-claude-secondary border border-claude-border-light rounded-lg text-claude-text-secondary hover:bg-claude-tertiary hover:text-claude-text transition-colors duration-200 flex items-center justify-center">
+                            <i class="fas fa-plus text-sm"></i>
+                        </button>
+                        
+                        <!-- Text Input -->
+                        <textarea 
+                            id="messageInput" 
+                            placeholder="How can I help you today?" 
+                            rows="1" 
+                            maxlength="4000"
+                            class="flex-1 bg-transparent border-none outline-none text-claude-text text-base resize-none placeholder-claude-text-muted font-inter min-h-[24px] max-h-[120px]"
+                        ></textarea>
+                        
+                        <!-- Model Selector -->
+                        <div id="modelSelector" class="relative">
+                        <div id="modelSelectorInner" class="flex items-center gap-2 bg-claude-secondary border border-claude-border-light rounded-lg px-3 py-2 cursor-pointer hover:bg-claude-tertiary transition-colors duration-200">
+                            <span id="currentModel" class="text-claude-text text-sm font-medium whitespace-nowrap">GPT-4o</span>
+                            <i class="fas fa-chevron-down text-claude-text-secondary text-xs"></i>
+                        </div>                            <!-- Model Dropdown -->
+                            <div id="modelDropdown" class="absolute bottom-full right-0 mb-2 bg-claude-bg border border-claude-border rounded-xl shadow-xl shadow-black/20 min-w-72 max-h-96 overflow-y-auto z-50 hidden">
+                                <!-- Models will be populated dynamically -->
                             </div>
                         </div>
-                        <div class="model-option active">
-                            <div class="model-info">
-                                <div class="model-title">Sonnet 4</div>
-                                <div class="model-subtitle">Smart, efficient model for everyday use</div>
-                            </div>
-                            <i class="fas fa-check"></i>
-                        </div>
-                        <div class="model-option">
-                            <div class="model-info">
-                                <div class="model-title">More models</div>
-                            </div>
-                            <i class="fas fa-chevron-right"></i>
-                        </div>
+                        
+                        <!-- Send Button -->
+                        <button id="sendBtn" disabled class="w-10 h-10 bg-claude-accent rounded-lg text-white flex items-center justify-center hover:bg-claude-accent-hover hover:-translate-y-px disabled:bg-claude-tertiary disabled:text-claude-text-muted disabled:transform-none transition-all duration-200">
+                            <i class="fas fa-paper-plane text-sm"></i>
+                        </button>
                     </div>
-                </div>
-                <button class="upgrade-btn">
-                    <span>Upgrade to connect your tools to Claude</span>
-                </button>
-            </div>
-        </header>
-
-        <!-- Main Content -->
-        <main class="main-content">
-            <!-- Welcome Screen -->
-            <div class="welcome-screen" id="welcomeScreen">
-                <div class="welcome-content">
-                    <div class="welcome-icon">
-                        <i class="fas fa-sparkles"></i>
-                    </div>
-                    <h1>Hi Mark, how are you?</h1>
-                    <p>How can I help you today?</p>
-                </div>
-            </div>
-
-            <!-- Chat Container -->
-            <div class="chat-container" id="chatContainer" style="display: none;">
-                <div class="messages-area" id="messagesArea">
-                    <!-- Messages will be dynamically added here -->
-                </div>
-            </div>
-        </main>
-
-        <!-- Input Area -->
-        <div class="input-section">
-            <div class="input-container">
-                <div class="input-wrapper">
-                    <textarea 
-                        id="messageInput" 
-                        placeholder="How can I help you today?" 
-                        rows="1" 
-                        maxlength="4000"
-                    ></textarea>
-                    <button class="send-btn" id="sendBtn" disabled>
-                        <i class="fas fa-paper-plane"></i>
-                    </button>
-                </div>
-                <div class="input-footer">
-                    <div class="model-info">
-                        Claude can make mistakes. Please double-check responses.
-                    </div>
+                
                 </div>
             </div>
         </div>
-    </div>
 
-    <!-- Loading Overlay -->
-    <div class="loading-overlay" id="loadingOverlay" style="display: none;">
-        <div class="loading-content">
-            <div class="loading-spinner"></div>
-            <span>Thinking...</span>
+        <!-- Chat Container (hidden initially) -->
+        <div id="chatContainer" class="hidden flex flex-col h-full">
+            <div id="messagesArea" class="flex-1 overflow-y-auto p-4">
+                <!-- Messages will be dynamically added here -->
+            </div>
+            
+            <!-- Chat Input (same structure as above but positioned differently) -->
+            <div class="border-t border-claude-border-light bg-claude-bg p-4">
+                <div class="max-w-4xl mx-auto">
+                    <div class="flex items-center gap-3 bg-claude-input border border-claude-border-light rounded-xl p-4 focus-within:border-claude-border focus-within:shadow-lg focus-within:shadow-claude-accent/10 transition-all duration-200">
+                        <button id="newChatBtn2" class="w-8 h-8 bg-claude-secondary border border-claude-border-light rounded-lg text-claude-text-secondary hover:bg-claude-tertiary hover:text-claude-text transition-colors duration-200 flex items-center justify-center">
+                            <i class="fas fa-plus text-sm"></i>
+                        </button>
+                        <textarea 
+                            id="messageInput2" 
+                            placeholder="How can I help you today?" 
+                            rows="1" 
+                            maxlength="4000"
+                            class="flex-1 bg-transparent border-none outline-none text-claude-text text-base resize-none placeholder-claude-text-muted font-inter min-h-[24px] max-h-[120px]"
+                        ></textarea>
+                        <div id="modelSelector2" class="relative">
+                            <div id="modelSelectorInner2" class="flex items-center gap-2 bg-claude-secondary border border-claude-border-light rounded-lg px-3 py-2 cursor-pointer hover:bg-claude-tertiary transition-colors duration-200">
+                                <span id="currentModel2" class="text-claude-text text-sm font-medium whitespace-nowrap">GPT-4o</span>
+                                <i class="fas fa-chevron-down text-claude-text-secondary text-xs"></i>
+                            </div>
+                            <!-- Model Dropdown -->
+                            <div id="modelDropdown2" class="absolute top-full left-0 mt-2 bg-claude-bg border border-claude-border rounded-xl shadow-xl shadow-black/20 min-w-72 max-h-96 overflow-y-auto z-50 hidden">
+                                <!-- Models will be populated dynamically -->
+                            </div>
+                        </div>
+                        <button id="sendBtn2" type="button" class="w-10 h-10 bg-claude-accent rounded-lg text-white flex items-center justify-center hover:bg-claude-accent-hover hover:-translate-y-px transition-all duration-200">
+                            <i class="fas fa-paper-plane text-sm"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 

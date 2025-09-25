@@ -136,6 +136,9 @@ GITHUB_TOKEN=github_pat_your_token_here
 # Optional N8N Configuration
 N8N_BASIC_AUTH_USER=admin
 N8N_BASIC_AUTH_PASSWORD=secret
+
+# Optional: Forward tools/tool_choice directly to upstream and disable local tool execution
+PROXY_TOOL_PASSTHROUGH=true
 ```
 
 ### Docker Compose Services
@@ -269,6 +272,20 @@ docker-compose logs n8n postgres
 ### Updating the Proxy
 1. Modify `openai_api_server.py`  
 2. Rebuild: `docker-compose up --build github-models-proxy`
+
+### Pass-Through Mode (Tools)
+
+Pass-through of tool definitions is ON by default. If your orchestrator (e.g. n8n) manages tool/function calls itself you don't need to do anything. Set `PROXY_TOOL_PASSTHROUGH=false` to disable and let the proxy perform local tool orchestration.
+
+Behaviour in this mode:
+- `tools` and `tool_choice` fields are forwarded unchanged to the upstream endpoint.
+- The proxy does not inject system instructions describing tools.
+- No interception / second-pass execution loop is performed (streaming and non-streaming are raw relays).
+- Local `TOOL_REGISTRY_JSON` and `run_tool_calls` logic are bypassed entirely.
+
+Use this when you want the proxy to behave as a transparent OpenAI-compatible transport layer only.
+
+Disable by explicitly setting `PROXY_TOOL_PASSTHROUGH=false` (or `0` / `no`).
 
 ### Updating Chat UI
 1. Modify files in `web/` directory
