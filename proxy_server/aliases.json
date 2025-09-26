@@ -1,0 +1,11 @@
+{
+  "Joke_API": {
+    "toolType": "httpRequestTool",
+    "node": "Joke API",
+    "workflow": "Joke agent (with HTTP tool)",
+    "parameters": {
+      "url": "https://v2.jokeapi.dev/",
+      "responseType": "json"
+    }
+  }
+}

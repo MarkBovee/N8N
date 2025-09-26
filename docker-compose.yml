@@ -13,16 +13,19 @@ services:
     build: .
     restart: always
     ports:
-      - "11434:11434"  # Keep same port as original Ollama setup for N8N compatibility
+      - "11434:11434"
     environment:
-      - GITHUB_TOKEN=${GITHUB_TOKEN}
-      - N8N_API_KEY=${N8N_API_KEY}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}  # Your GitHub PAT with 'models:read'
+      - N8N_API_KEY=${N8N_API_KEY}  # If your proxy uses this for auth
       - N8N_BASE_URL=${N8N_BASE_URL:-http://n8n:5678}
-      # Map tools to endpoints inside the container; override in your .env or environment as needed
-      - TOOL_REGISTRY_JSON=${TOOL_REGISTRY_JSON}
-      - TOOL_STUB=false
     volumes:
       - .:/app
+    # Add health check if tools cause long hangs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/v1/models"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   # Chat UI - Web interface for the GitHub Models API
   chat-ui:
@@ -51,19 +54,24 @@ services:
       - DB_POSTGRESDB_PASSWORD=n8n_password
       - GENERIC_TIMEZONE=Europe/Amsterdam
       - N8N_BASIC_AUTH_ACTIVE=true
-      - N8N_BASIC_AUTH_USER=admin       # pas aan naar eigen gebruiker
+      - N8N_BASIC_AUTH_USER=admin@example.com       # pas aan naar eigen gebruiker
       - N8N_BASIC_AUTH_PASSWORD=secret  # pas aan naar eigen wachtwoord
+      # Point directly to GitHub Models
+      # - OPENAI_API_BASE=https://models.github.ai/v1
+      # - OPENAI_API_KEY=${GITHUB_TOKEN}       # Use GitHub PAT with 'models:read' scope
+      # - OPENAI_MODEL=openai/gpt-4o           # Explicit model for tools support
       # OpenAI Configuration for GitHub Models Proxy
       - OPENAI_API_BASE=http://github-models-proxy:11434/v1
       - OPENAI_API_KEY=dummy-key-for-github-proxy
+      - OPENAI_MODEL=gpt-4o  # Explicitly set a tool-supporting model in n8n env if needed
       # Give node more heap memory to avoid OOM during heavy workflows
-      - NODE_OPTIONS=--max-old-space-size=1024
-      - N8N_MEMORY_LIMIT=1024
+      - N8N_MEMORY_LIMIT=2048
+      - NODE_OPTIONS=--max-old-space-size=2048
     # Attempt to set a container memory limit for Compose environments that honor it
-    mem_limit: 1g
+    mem_limit: 2g
     depends_on:
       - postgres
-      - github-models-proxy
+    # - github-models-proxy
     volumes:
       - n8n-data:/home/node/.n8n
 

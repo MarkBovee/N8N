@@ -15,6 +15,7 @@ import structlog
 from config import get_settings
 from .tool_handler import ToolHandler, run_tool_calls_async
 from .utils_tool_calls import extract_tool_calls, StreamHandler
+from .n8n_discovery import ToolDiscovery
 
 settings = get_settings()
 
@@ -45,6 +46,7 @@ TRIM_MESSAGES_STRATEGY = settings.trim_messages_strategy
 ALLOW_PASSTHROUGH_TOOLS = getattr(settings, 'allow_passthrough_tools', False)
 
 tool_handler = ToolHandler(TOOL_REGISTRY, timeout=settings.tool_timeout)
+discovery = ToolDiscovery()
 
 class OpenAIMessage(BaseModel):
     role: str
@@ -55,10 +57,12 @@ class OpenAIChatRequest(BaseModel):
     model: str
     messages: List[OpenAIMessage]
     temperature: Optional[float] = Field(default=0.7, ge=0.0, le=2.0)
-    max_tokens: Optional[int] = Field(default=None, ge=1, le=4096)
+    max_tokens: Optional[int] = Field(default=None, ge=1)
     stream: Optional[bool] = False
     tools: Optional[List[Dict[str, Any]]] = None
     tool_choice: Optional[Any] = None
+    # Add stream_options for usage reporting in streams
+    stream_options: Optional[Dict[str, Any]] = None
 
     @validator('messages')
     def validate_messages_not_empty(cls, v):
@@ -104,6 +108,33 @@ def validate_model(model: str) -> str:
         return model
     logger.warning('model.unknown_fallback', original=model, fallback='openai/gpt-4o-mini')
     return 'openai/gpt-4o-mini'
+
+def trim_request_payload(request_data: Dict[str, Any], max_bytes: int) -> Dict[str, Any]:
+    """
+    Trims the request payload to be under max_bytes.
+    Tries to remove oldest non-system messages first.
+    """
+    request_copy = json.loads(json.dumps(request_data)) # Deep copy
+    
+    if len(json.dumps(request_copy).encode('utf-8')) <= max_bytes:
+        return request_copy
+
+    messages = request_copy.get("messages", [])
+    system_messages = [m for m in messages if m.get("role") == "system"]
+    user_messages = [m for m in messages if m.get("role") != "system"]
+
+    while len(json.dumps(request_copy).encode('utf-8')) > max_bytes and user_messages:
+        user_messages.pop(0)
+        request_copy["messages"] = system_messages + user_messages
+        
+    logger.info(
+        "payload.trimmed",
+        original_size=len(json.dumps(request_data).encode('utf-8')),
+        new_size=len(json.dumps(request_copy).encode('utf-8')),
+        messages_remaining=len(request_copy.get("messages", [])),
+    )
+    
+    return request_copy
 
 def prepare_messages_for_local_ai(messages: List[Dict[str, Any]]):
     transformed = []
@@ -259,6 +290,18 @@ app.add_middleware(
     allow_headers=['*'],
 )
 
+
+@app.on_event('startup')
+async def _startup_refresh_discovery():
+    """On server startup, refresh discovery and log configured + discovered tool names for debugging."""
+    try:
+        logger.info('startup.tools.status', note='refreshing n8n discovery and listing configured tools')
+        discovered = await discovery.refresh()
+        logger.info('startup.configured_tools', configured=list(TOOL_REGISTRY.keys()))
+        logger.info('startup.discovered_tools', discovered_count=len(discovered), discovered_keys=list(discovered.keys())[:100], note='aliasing and underscore/dash variants included')
+    except Exception:
+        logger.exception('startup.discovery_failed')
+
 @app.get('/')
 async def root():
     return {'message': 'GitHub Models Proxy'}
@@ -288,361 +331,100 @@ async def list_models(authorization: str = Header(None)):
 
 @app.post('/v1/chat/completions')
 async def chat_completions(request: OpenAIChatRequest, authorization: str = Header(None)):
+    """
+    Main endpoint for proxying chat completions.
+    - If PROXY_TOOL_PASSTHROUGH is True, it forwards the request directly to GitHub Models,
+      including tools and tool_choice, and returns the response as-is.
+    - Otherwise, it uses a local tool orchestration loop.
+    """
     try:
         validated_model = validate_model(request.model)
-        if PROXY_TOOL_PASSTHROUGH:
-            logger.info('pass_through.forwarding', tools=bool(request.tools), stream=request.stream)
-            passthrough_messages = []
-            for m in request.messages:
-                md = {'role': m.role, 'content': m.content}
-                if getattr(m, 'name', None):
-                    md['name'] = m.name
-                passthrough_messages.append(md)
-            github_request = {
-                'model': validated_model,
-                'messages': passthrough_messages,
-                'temperature': request.temperature,
-                'stream': request.stream
-            }
-            # Debug: log the exact JSON payload we will send upstream (sanitized; no auth)
-            try:
-                outbound = dict(github_request)
-                logger.info('outbound_payload_debug', payload=json.dumps(outbound)[:20000], size=len(json.dumps(outbound).encode('utf-8')))
-            except Exception:
-                logger.exception('outbound_payload_debug_failed')
-            if request.max_tokens is not None:
-                github_request['max_tokens'] = request.max_tokens
-            # The GitHub inference endpoint may not accept arbitrary 'tools' or
-            # 'tool_choice' pass-through fields. Remove them for passthrough
-            # requests to avoid upstream 400/413 and log the removal for
-            # diagnostics.
-            if request.tools is not None:
-                if ALLOW_PASSTHROUGH_TOOLS:
-                    github_request['tools'] = request.tools
-                    logger.info('passthrough.include_tools', note='including tools for passthrough', tools_count=len(request.tools) if isinstance(request.tools, list) else None)
-                else:
-                    logger.info('passthrough.drop_tools', note='dropping tools for passthrough', tools_count=len(request.tools) if isinstance(request.tools, list) else None)
-            if request.tool_choice is not None:
-                if ALLOW_PASSTHROUGH_TOOLS:
-                    github_request['tool_choice'] = request.tool_choice
-                    logger.info('passthrough.include_tool_choice', note='including tool_choice for passthrough')
-                else:
-                    logger.info('passthrough.drop_tool_choice', note='dropping tool_choice for passthrough')
-            async with httpx.AsyncClient() as client:
-                # Diagnostics: measure payload size and log; if too large attempt trimming
-                raw_bytes = json.dumps(github_request).encode('utf-8')
-                size = len(raw_bytes)
-                if size > MAX_UPSTREAM_PAYLOAD_BYTES:
-                    logger.warning('payload.too_large', size=size, max=MAX_UPSTREAM_PAYLOAD_BYTES, strategy=TRIM_MESSAGES_STRATEGY)
-                    if TRIM_MESSAGES_STRATEGY == 'drop_oldest':
-                        original_non_system = [m for m in github_request['messages'] if m.get('role') != 'system']
-                        preserved_system = [m for m in github_request['messages'] if m.get('role') == 'system']
-                        non_system = list(original_non_system)
-                        while non_system and len(json.dumps({**github_request, 'messages': preserved_system + non_system}).encode('utf-8')) > MAX_UPSTREAM_PAYLOAD_BYTES:
-                            non_system.pop(0)
-                        if not non_system and original_non_system:
-                            last = dict(original_non_system[-1])
-                            if isinstance(last.get('content'), str):
-                                last['content'] = (last['content'][:120] + '...') if len(last['content']) > 120 else last['content']
-                            non_system = [last]
-                        github_request['messages'] = preserved_system + non_system
-                        size = len(json.dumps(github_request).encode('utf-8'))
-                        logger.info('payload.trimmed', new_size=size, message_count=len(github_request['messages']))
 
-                # Attempt the upstream call, and if 413 happens, try aggressive trims and retry once
-                upstream_resp = await client.post(f'{GITHUB_BASE_URL}/chat/completions', json=github_request, headers={'Authorization': f'Bearer {GITHUB_TOKEN}'}, timeout=120)
-                if upstream_resp.status_code >= 400:
-                    # Safe summary: model, message count, first message role and length, payload bytes
-                    msgs = github_request.get('messages', [])
-                    first = msgs[0] if msgs else {}
-                    logger.error('upstream.reject.summary', status=upstream_resp.status_code, model=github_request.get('model'), message_count=len(msgs), first_role=first.get('role'), first_len=(len(first.get('content') or '') if isinstance(first.get('content'), str) else None), payload_bytes=len(json.dumps(github_request).encode('utf-8')))
-                    try:
-                        body_text = upstream_resp.text
-                        logger.error('upstream.reject.body', body=body_text[:1000])
-                    except Exception:
-                        logger.exception('upstream.reject.body.failed')
-                if upstream_resp.status_code == 413:
-                    logger.warning('upstream.413_received', initial_size=len(json.dumps(github_request).encode('utf-8')))
-                    trimmed = _aggressive_trim_request(github_request, MAX_UPSTREAM_PAYLOAD_BYTES)
-                    try:
-                        upstream_resp = await client.post(f'{GITHUB_BASE_URL}/chat/completions', json=trimmed, headers={'Authorization': f'Bearer {GITHUB_TOKEN}'}, timeout=120)
-                        logger.info('upstream.retry_after_trim', status=upstream_resp.status_code, new_size=len(json.dumps(trimmed).encode('utf-8')))
-                        if upstream_resp.status_code >= 400:
-                            msgs = trimmed.get('messages', [])
-                            first = msgs[0] if msgs else {}
-                            logger.error('upstream.reject.summary', status=upstream_resp.status_code, model=trimmed.get('model'), message_count=len(msgs), first_role=first.get('role'), first_len=(len(first.get('content') or '') if isinstance(first.get('content'), str) else None), payload_bytes=len(json.dumps(trimmed).encode('utf-8')))
-                            try:
-                                logger.error('upstream.reject.body', body=upstream_resp.text[:1000])
-                            except Exception:
-                                logger.exception('upstream.reject.body.failed')
-                    except Exception as e:
-                        logger.exception('upstream.retry_failed')
-                        raise
-            # Log successful upstream response body for diagnostics (truncated)
-            try:
-                upstream_body_text = upstream_resp.text
-                logger.info('upstream.response.body', body=upstream_body_text[:2000], status=upstream_resp.status_code, payload_bytes=len(json.dumps(github_request).encode('utf-8')))
-            except Exception:
-                logger.exception('upstream.response.body.failed')
-
-            if request.stream:
-                async def passthrough_stream():
-                    logger.info('stream.pass_through.start')
-                    async with httpx.AsyncClient(timeout=None) as client2:
-                        async with client2.stream('POST', f'{GITHUB_BASE_URL}/chat/completions', json=github_request, headers={'Authorization': f'Bearer {GITHUB_TOKEN}'}) as stream_resp:
-                            stream_resp.raise_for_status()
-                            async for line in stream_resp.aiter_lines():
-                                if line:
-                                    yield line + '\n'
-                    logger.info('stream.pass_through.end')
-                media_type = upstream_resp.headers.get('Content-Type', 'text/event-stream')
-                return StreamingResponse(passthrough_stream(), media_type=media_type)
-            else:
-                try:
-                    upstream_resp.raise_for_status()
-                except httpx.RequestError as e:
-                    raise HTTPException(status_code=502, detail=str(e))
-                try:
-                    body = upstream_resp.json()
-                    # Log the downstream JSON response (truncated)
-                    try:
-                        logger.info('upstream.response.json', body=json.dumps(body)[:20000], status=upstream_resp.status_code)
-                    except Exception:
-                        logger.exception('upstream.response.json.failed')
-                    return JSONResponse(content=body, headers=build_headers())
-                except Exception:
-                    text_body = upstream_resp.text
-                    logger.info('upstream.response.text', body=text_body[:2000], status=upstream_resp.status_code)
-                    return JSONResponse(content={'choices': [{'message': {'role': 'assistant', 'content': text_body}}]}, headers=build_headers())
-
-        raw_messages = []
-        for m in request.messages:
-            d = {'role': m.role, 'content': m.content}
-            if getattr(m, 'name', None):
-                d['name'] = m.name
-            raw_messages.append(d)
-        prepared_messages = prepare_messages_for_local_ai(raw_messages)
+        # Build the base request for GitHub Models API
         github_request = {
-            'model': validated_model,
-            'messages': prepared_messages,
-            'temperature': request.temperature,
-            'stream': request.stream
+            "model": validated_model,
+            "messages": [msg.model_dump(exclude_none=True) for msg in request.messages],
+            "temperature": request.temperature,
+            "stream": request.stream,
         }
         if request.max_tokens:
-            github_request['max_tokens'] = request.max_tokens
-        if getattr(request, 'tools', None):
-            try:
-                local_tools = transform_tools_for_local_ai(request.tools)
-                tool_lines = [f"- {t['name']}: {t.get('description','(no description)')}" for t in local_tools]
-                tool_list_text = "\n".join(tool_lines)
-                instruction = (
-                    'The following tools are available to you:\n'
-                    f"{tool_list_text}\n\n"
-                    'If you decide to call a tool, respond with a single-line JSON object exactly in this form:'
-                    ' {"tool_call": {"name": "<tool_name>", "arguments": { ... } } }'
-                    ' Do not add any extra text on the same line.'
-                )
-                # Debug: log the instruction so we can inspect its size/content (truncated)
-                try:
-                    logger.info('tool_instruction.debug', length=len(instruction), instruction=instruction[:3000])
-                except Exception:
-                    logger.exception('tool_instruction.debug_failed')
-                # Also include the structured tools declaration so upstream may use
-                # function/tool calling if it supports it.
-                try:
-                    github_request['tools'] = local_tools
-                    logger.info('local_tools.attached', count=len(local_tools))
-                except Exception:
-                    logger.exception('attach_local_tools_failed')
-                github_request['messages'] = [{'role': 'system', 'content': instruction}] + github_request['messages']
-                # Include the original tools definition in the outgoing request so
-                # upstream or local model can be aware of the tool signatures.
-                try:
-                    github_request['tools'] = request.tools
-                    logger.info('local.include_tools', note='including tools in outgoing github_request', tools_count=len(request.tools) if isinstance(request.tools, list) else None)
-                except Exception:
-                    logger.exception('include_tools_failed')
-            except Exception:
-                logger.exception('tools.parse_failed')
+            github_request["max_tokens"] = request.max_tokens
+        if request.tools:
+            github_request["tools"] = request.tools
+        if request.tool_choice:
+            github_request["tool_choice"] = request.tool_choice
+        if request.stream and request.stream_options:
+            github_request["stream_options"] = request.stream_options
 
-        # Pre-flight payload diagnostics & trimming for local tool orchestration path
-        raw_bytes = json.dumps(github_request).encode('utf-8')
-        size = len(raw_bytes)
-        if size > MAX_UPSTREAM_PAYLOAD_BYTES:
-            logger.warning('payload.too_large', size=size, max=MAX_UPSTREAM_PAYLOAD_BYTES, strategy=TRIM_MESSAGES_STRATEGY)
-            if TRIM_MESSAGES_STRATEGY == 'drop_oldest':
-                preserved_system = [m for m in github_request['messages'] if m.get('role') == 'system']
-                non_system = [m for m in github_request['messages'] if m.get('role') != 'system']
-                while non_system and len(json.dumps({**github_request, 'messages': preserved_system + non_system}).encode('utf-8')) > MAX_UPSTREAM_PAYLOAD_BYTES:
-                    non_system.pop(0)
-                github_request['messages'] = preserved_system + non_system
-                size = len(json.dumps(github_request).encode('utf-8'))
-                logger.info('payload.trimmed', new_size=size, message_count=len(github_request['messages']))
-        async with httpx.AsyncClient() as client:
-            response = await client.post(f'{GITHUB_BASE_URL}/chat/completions', json=github_request, headers={'Authorization': f'Bearer {GITHUB_TOKEN}'}, timeout=120)
-            if response.status_code >= 400:
-                msgs = github_request.get('messages', [])
-                first = msgs[0] if msgs else {}
-                logger.error('upstream.reject.summary', status=response.status_code, model=github_request.get('model'), message_count=len(msgs), first_role=first.get('role'), first_len=(len(first.get('content') or '') if isinstance(first.get('content'), str) else None), payload_bytes=len(json.dumps(github_request).encode('utf-8')))
-                try:
-                    logger.error('upstream.reject.body', body=response.text[:1000])
-                except Exception:
-                    logger.exception('upstream.reject.body.failed')
-            if response.status_code == 413:
-                logger.warning('upstream.413_received', initial_size=len(json.dumps(github_request).encode('utf-8')))
-                trimmed = _aggressive_trim_request(github_request, MAX_UPSTREAM_PAYLOAD_BYTES)
-                try:
-                    response = await client.post(f'{GITHUB_BASE_URL}/chat/completions', json=trimmed, headers={'Authorization': f'Bearer {GITHUB_TOKEN}'}, timeout=120)
-                    logger.info('upstream.retry_after_trim', status=response.status_code, new_size=len(json.dumps(trimmed).encode('utf-8')))
-                    if response.status_code >= 400:
-                        msgs = trimmed.get('messages', [])
-                        first = msgs[0] if msgs else {}
-                        logger.error('upstream.reject.summary', status=response.status_code, model=trimmed.get('model'), message_count=len(msgs), first_role=first.get('role'), first_len=(len(first.get('content') or '') if isinstance(first.get('content'), str) else None), payload_bytes=len(json.dumps(trimmed).encode('utf-8')))
-                except Exception:
-                    logger.exception('upstream.retry_failed')
-                    raise
-        # Log the upstream response body for diagnostics (truncated) in the
-        # local orchestration path so we can inspect why the assistant returned
-        # an empty content field.
-        try:
-            upstream_body_text = response.text
-            logger.info('upstream.response.body', body=upstream_body_text[:20000], status=response.status_code, payload_bytes=len(json.dumps(github_request).encode('utf-8')))
-        except Exception:
-            logger.exception('upstream.response.body.failed')
-        try:
-            response.raise_for_status()
-        except httpx.RequestError as e:
-            raise HTTPException(status_code=502, detail=str(e))
+        # Trim payload if it exceeds the max size
+        payload_bytes = len(json.dumps(github_request).encode('utf-8'))
+        if payload_bytes > MAX_UPSTREAM_PAYLOAD_BYTES:
+            logger.warning(
+                "payload.too_large",
+                size=payload_bytes,
+                max_size=MAX_UPSTREAM_PAYLOAD_BYTES,
+                strategy="trim_oldest_messages",
+            )
+            github_request = trim_request_payload(github_request, MAX_UPSTREAM_PAYLOAD_BYTES)
 
+        # Log the prepared request for debugging
+        logger.info(
+            "outbound.request.prepared",
+            model=validated_model,
+            stream=request.stream,
+            tools_present=bool(request.tools),
+            tool_choice_present=bool(request.tool_choice),
+        )
+
+        # Handle streaming responses
         if request.stream:
-            async def generate():
-                prefix_mode = None
-                first = True
-                async with httpx.AsyncClient(timeout=None) as client2:
-                    async with client2.stream('POST', f'{GITHUB_BASE_URL}/chat/completions', json=github_request, headers={'Authorization': f'Bearer {GITHUB_TOKEN}'}) as stream_resp:
-                        async for line in stream_resp.aiter_lines():
-                            if not line:
-                                continue
-                            if first:
-                                first = False
-                                prefix_mode = 'sse' if line.strip().startswith('data:') else 'raw'
-                            payload = None
-                            if prefix_mode == 'sse' and line.strip().startswith('data:'):
-                                payload_txt = line.strip()[len('data:'):].strip()
-                                if payload_txt == '[DONE]':
-                                    yield 'data: [DONE]\n\n'
-                                    break
-                                try:
-                                    payload = json.loads(payload_txt)
-                                except Exception:
-                                    payload = None
-                            else:
-                                try:
-                                    payload = json.loads(line.strip())
-                                except Exception:
-                                    payload = None
-                            tool_calls = []
-                            if payload:
-                                try:
-                                    for ch in payload.get('choices', []) if isinstance(payload.get('choices', []), list) else []:
-                                        msg = ch.get('message', {})
-                                        if isinstance(msg, dict) and msg.get('tool_calls'):
-                                            tool_calls.extend(msg.get('tool_calls'))
-                                        content = msg.get('content') if isinstance(msg, dict) else None
-                                        if isinstance(content, str):
-                                            tool_calls.extend(extract_tool_calls(content))
-                                except Exception:
-                                    tool_calls = []
-                                if 'extracted_tool_calls' in payload:
-                                    tool_calls.extend(payload['extracted_tool_calls'])
-                            if tool_calls and not PROXY_TOOL_PASSTHROUGH:
-                                try:
-                                    tool_results = await run_tool_calls_async(tool_handler, tool_calls)
-                                    messages_for_rerun = list(prepared_messages) + tool_results
-                                    async with httpx.AsyncClient() as client3:
-                                        follow_payload = {**github_request, 'messages': messages_for_rerun, 'stream': False}
-                                        # Remove tools/tool_choice from follow-ups to avoid upstream rejects
-                                        follow_payload.pop('tools', None)
-                                        follow_payload.pop('tool_choice', None)
-                                        try:
-                                            logger.info('outbound_followup_payload_debug', payload=json.dumps(follow_payload)[:20000], size=len(json.dumps(follow_payload).encode('utf-8')))
-                                        except Exception:
-                                            logger.exception('outbound_followup_payload_debug_failed')
-                                        follow_resp = await client3.post(f'{GITHUB_BASE_URL}/chat/completions', json=follow_payload, headers={'Authorization': f'Bearer {GITHUB_TOKEN}'}, timeout=120)
-                                        follow_resp.raise_for_status()
-                                        local_follow = follow_resp.json()
-                                    transformed_follow = transform_local_response(local_follow)
-                                    serialized = json.dumps(transformed_follow)
-                                    yield f'data: {serialized}\n\n' if prefix_mode == 'sse' else serialized + '\n'
-                                except Exception:
-                                    err_payload = json.dumps({'choices': [{'message': {'role': 'assistant', 'content': '[tool execution failed]'}}]})
-                                    yield f'data: {err_payload}\n\n' if prefix_mode == 'sse' else err_payload + '\n'
-                                break
-                            else:
-                                yield line + ('\n' if prefix_mode != 'sse' else '\n\n')
-                
-            media_type = response.headers.get('Content-Type', 'text/event-stream')
-            return StreamingResponse(generate(), media_type=media_type)
+            async def stream_generator():
+                async with httpx.AsyncClient(timeout=120.0) as client:
+                    async with client.stream(
+                        "POST",
+                        f"{GITHUB_BASE_URL}/chat/completions",
+                        json=github_request,
+                        headers={"Authorization": f"Bearer {GITHUB_TOKEN}"},
+                    ) as response:
+                        response.raise_for_status()
+                        async for chunk in response.aiter_bytes():
+                            yield chunk
+
+            return StreamingResponse(
+                stream_generator(),
+                media_type="text/event-stream",
+            )
+
+        # Handle non-streaming responses
         else:
-            messages_loop = list(prepared_messages)
-            local_resp = response.json()
-            if PROXY_TOOL_PASSTHROUGH:
-                return JSONResponse(content=transform_local_response(local_resp), headers=build_headers())
-            for _ in range(MAX_TOOL_ITERATIONS):
-                transformed = transform_local_response(local_resp)
-                try:
-                    choices = transformed.get('choices', [])
-                    tool_calls = []
-                    for ch in choices:
-                        m = ch.get('message', {})
-                        if m.get('tool_calls'):
-                            tool_calls.extend(m.get('tool_calls'))
-                        content = m.get('content')
-                        if isinstance(content, str):
-                            tool_calls.extend([
-                                {'name': tc.get('name'), 'args': tc.get('arguments', {})} for tc in extract_tool_calls(content)
-                            ])
-                    if tool_calls:
-                        tool_results = await run_tool_calls_async(tool_handler, tool_calls)
-                        messages_loop.extend(tool_results)
-                        github_request['messages'] = messages_loop
-                        # Re-run size check before follow-up call
-                        follow_raw = json.dumps(github_request).encode('utf-8')
-                        follow_size = len(follow_raw)
-                        if follow_size > MAX_UPSTREAM_PAYLOAD_BYTES and TRIM_MESSAGES_STRATEGY == 'drop_oldest':
-                            preserved_system = [m for m in github_request['messages'] if m.get('role') == 'system']
-                            non_system = [m for m in github_request['messages'] if m.get('role') != 'system']
-                            while non_system and len(json.dumps({**github_request, 'messages': preserved_system + non_system}).encode('utf-8')) > MAX_UPSTREAM_PAYLOAD_BYTES:
-                                non_system.pop(0)
-                            github_request['messages'] = preserved_system + non_system
-                            logger.info('payload.trimmed.follow_up', new_size=len(json.dumps(github_request).encode('utf-8')), message_count=len(github_request['messages']))
-                        async with httpx.AsyncClient() as client4:
-                            try:
-                                follow_payload2 = dict(github_request)
-                                follow_payload2.pop('tools', None)
-                                follow_payload2.pop('tool_choice', None)
-                                logger.info('outbound_followup_payload_debug', payload=json.dumps(follow_payload2)[:20000], size=len(json.dumps(follow_payload2).encode('utf-8')))
-                            except Exception:
-                                logger.exception('outbound_followup_payload_debug_failed')
-                            resp2 = await client4.post(f'{GITHUB_BASE_URL}/chat/completions', json=follow_payload2, headers={'Authorization': f'Bearer {GITHUB_TOKEN}'}, timeout=120)
-                            if resp2.status_code == 413:
-                                logger.warning('upstream.413_on_followup', size=len(json.dumps(github_request).encode('utf-8')))
-                                trimmed_follow = _aggressive_trim_request(github_request, MAX_UPSTREAM_PAYLOAD_BYTES)
-                                resp2 = await client4.post(f'{GITHUB_BASE_URL}/chat/completions', json=trimmed_follow, headers={'Authorization': f'Bearer {GITHUB_TOKEN}'}, timeout=120)
-                                logger.info('upstream.retry_after_trim_followup', status=resp2.status_code, new_size=len(json.dumps(trimmed_follow).encode('utf-8')))
-                            resp2.raise_for_status()
-                            local_resp = resp2.json()
-                        continue
-                    return JSONResponse(content=transformed, headers=build_headers())
-                except HTTPException:
-                    raise
-                except Exception as e:
-                    logger.error('tool.loop.error', error=str(e))
-                    return JSONResponse(content=local_resp, headers=build_headers())
-            return JSONResponse(content=transform_local_response(local_resp), headers=build_headers())
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                response = await client.post(
+                    f"{GITHUB_BASE_URL}/chat/completions",
+                    json=github_request,
+                    headers={"Authorization": f"Bearer {GITHUB_TOKEN}"},
+                )
+                response.raise_for_status()
+                
+                # Forward the exact response from GitHub, including 'usage' and 'tool_calls'
+                resp_json = response.json()
+                logger.info("outbound.response.received", body=json.dumps(resp_json)[:1000])
+                return JSONResponse(content=resp_json, status_code=response.status_code)
+
+    except httpx.HTTPStatusError as e:
+        logger.error(
+            "http_status_error",
+            status_code=e.response.status_code,
+            response_text=e.response.text,
+            request_details=json.dumps(github_request)[:1000] if 'github_request' in locals() else "github_request not available",
+        )
+        return JSONResponse(
+            content={"error": {"message": e.response.text, "type": "upstream_error"}},
+            status_code=e.response.status_code,
+        )
     except Exception as e:
-        logger.error('chat.endpoint.error', error=str(e))
+        logger.exception("chat.endpoint.error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):

@@ -1,13 +1,18 @@
 import json
 import httpx
-import structlog
+try:
+    import structlog
+    logger = structlog.get_logger()
+except Exception:
+    import logging
+    logger = logging.getLogger('tool_handler')
 from typing import Dict, Any, Tuple, Optional
 from fastapi import HTTPException
 from time import time
 
-from .n8n_discovery import N8nDiscovery
+from .n8n_discovery import ToolDiscovery
 
-logger = structlog.get_logger()
+# logger is defined above (structlog or fallback)
 
 class ToolHandler:
     def __init__(self, registry: Dict[str, Any], timeout: float = 15.0):
@@ -18,7 +23,7 @@ class ToolHandler:
         self.registry = registry or {}
         self.timeout = timeout
         # discovery helper (lazy init)
-        self.discovery = N8nDiscovery()
+        self.discovery = ToolDiscovery()
 
     async def execute_tool(self, name: str, args: Dict[str, Any]) -> Any:
         # 1) Try static registry overrides first
@@ -35,12 +40,62 @@ class ToolHandler:
 
         # 2) If registry did not provide an endpoint, try discovery
         discovered_used = False
+        discovered = None
         if not endpoint:
             discovered = await self.discovery.get(name)
             if discovered:
-                endpoint = discovered.get('url')
-                req_headers = discovered.get('headers') or {}
                 discovered_used = True
+
+        # If discovery returned an httpRequestTool entry, call the external API defined by the tool
+        if discovered and isinstance(discovered, dict) and discovered.get('toolType') == 'httpRequestTool':
+            tool_entry = discovered
+            tool_params = tool_entry.get('parameters') or {}
+            target_url = tool_params.get('url')
+            send_query = bool(tool_params.get('sendQuery'))
+            response_type = tool_params.get('responseType')
+            only_content = bool(tool_params.get('onlyContent'))
+
+            if not target_url:
+                raise HTTPException(status_code=400, detail=f"Discovered tool {name} has no target URL")
+
+            headers = tool_entry.get('headers') or {}
+
+            async with httpx.AsyncClient() as client:
+                try:
+                    logger.info("tool.call.start", tool=name, endpoint=target_url, args=args, headers=bool(headers), discovered=discovered_used)
+
+                    # Decide GET vs POST: if send_query is true and args present -> GET with params
+                    if send_query and args:
+                        resp = await client.get(target_url, params=args, headers=headers or None, timeout=self.timeout)
+                    else:
+                        # If args present, POST JSON body; otherwise GET
+                        if args:
+                            resp = await client.post(target_url, json=args, headers=headers or None, timeout=self.timeout)
+                        else:
+                            resp = await client.get(target_url, headers=headers or None, timeout=self.timeout)
+
+                    resp.raise_for_status()
+                    ctype = resp.headers.get("content-type", "")
+                    if response_type and isinstance(response_type, str) and 'html' in response_type.lower():
+                        # return as text; honoring only_content is left to caller or further parsing
+                        return resp.text
+                    if ctype and ctype.startswith("application/json"):
+                        return resp.json()
+                    return resp.text
+                except httpx.HTTPStatusError as e:
+                    status = e.response.status_code
+                    body = e.response.text or ''
+                    logger.error("tool.call.http_error", tool=name, status=status, body=body[:500])
+                    raise HTTPException(status_code=502, detail=f"Tool {name} returned error: {status}")
+                except httpx.RequestError as e:
+                    logger.error("tool.call.request_error", tool=name, error=str(e))
+                    raise HTTPException(status_code=502, detail=f"Tool execution failed: {e}")
+
+        # Otherwise fall back to invoking an endpoint URL (registry or discovery-provided url)
+        if discovered and isinstance(discovered, dict):
+            # Many discovery entries from webhook/webhookId path use 'url' key
+            endpoint = discovered.get('url') or endpoint
+            req_headers = discovered.get('headers') or req_headers
 
         if not endpoint:
             raise HTTPException(status_code=400, detail=f"Unknown tool: {name}")
